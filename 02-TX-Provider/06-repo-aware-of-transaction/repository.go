@@ -1,4 +1,4 @@
-package unitofwork
+package txdemo
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type Repository struct {
 	PointRepository PointRepository
 }
 
-func NewRepository(db *sql.DB) Repository {
+func NewRepository(db DB) Repository {
 	return Repository{
 		UserRepository:  NewUserRepository(db),
 		PointRepository: NewPointRepository(db),
@@ -39,13 +39,14 @@ type UserRepository interface {
 	GetById(ctx context.Context, id string) (*UserModel, error)
 	Create(ctx context.Context, data UserModel) (*UserModel, error)
 	Update(ctx context.Context, data UserModel) (*UserModel, error)
+	WithTransaction(tx *sql.Tx) UserRepository
 }
 
 type userRepository struct {
-	db *sql.DB
+	db DB
 }
 
-func NewUserRepository(db *sql.DB) UserRepository {
+func NewUserRepository(db DB) UserRepository {
 	return &userRepository{db: db}
 }
 
@@ -85,19 +86,25 @@ func (r *userRepository) Update(ctx context.Context, data UserModel) (*UserModel
 	return &data, nil
 }
 
+func (r *userRepository) WithTransaction(tx *sql.Tx) UserRepository {
+
+	return NewUserRepository(tx)
+}
+
 // Point repository
 type PointRepository interface {
 	GetByUserId(ctx context.Context, id string) (*PointModel, error)
 	Create(ctx context.Context, data PointModel) (*PointModel, error)
 	Update(ctx context.Context, data PointModel) (*PointModel, error)
 	AddPoint(ctx context.Context, userId string, points int) (*PointModel, error)
+	WithTransaction(tx *sql.Tx) PointRepository
 }
 
 type pointRepository struct {
-	db *sql.DB
+	db DB
 }
 
-func NewPointRepository(db *sql.DB) PointRepository {
+func NewPointRepository(db DB) PointRepository {
 	return &pointRepository{db: db}
 }
 
@@ -154,4 +161,9 @@ func (r *pointRepository) AddPoint(ctx context.Context, userId string, points in
 		UserID: userId,
 	}
 	return r.Create(ctx, newPoint)
+}
+
+func (r *pointRepository) WithTransaction(tx *sql.Tx) PointRepository {
+
+	return NewPointRepository(tx)
 }

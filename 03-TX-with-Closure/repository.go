@@ -1,23 +1,9 @@
-package unitofwork
+package updatefn_closure
 
 import (
 	"context"
 	"database/sql"
 )
-
-// Model
-
-type UserModel struct {
-	ID     string `json:"id"`
-	Email  string `json:"email"`
-	Points string `json:"points"`
-}
-
-type PointModel struct {
-	ID     string `json:"id"`
-	Points int    `json:"points"`
-	UserID string `json:"user_id"`
-}
 
 // Main Repository
 
@@ -39,6 +25,7 @@ type UserRepository interface {
 	GetById(ctx context.Context, id string) (*UserModel, error)
 	Create(ctx context.Context, data UserModel) (*UserModel, error)
 	Update(ctx context.Context, data UserModel) (*UserModel, error)
+	UpdateByID(ctx context.Context, userID string, updateFn func(user *UserModel) (bool, error)) error
 }
 
 type userRepository struct {
@@ -54,7 +41,8 @@ func (r *userRepository) GetById(ctx context.Context, id string) (*UserModel, er
 	row := r.db.QueryRowContext(ctx, query, id)
 
 	var user UserModel
-	err := row.Scan(&user.ID, &user.Email, &user.Points)
+	var points int
+	err := row.Scan(&user.id, &user.email, &points)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -62,12 +50,17 @@ func (r *userRepository) GetById(ctx context.Context, id string) (*UserModel, er
 		return nil, err
 	}
 
+	user.point = PointModel{
+		points: points,
+		userID: user.id,
+	}
+
 	return &user, nil
 }
 
 func (r *userRepository) Create(ctx context.Context, data UserModel) (*UserModel, error) {
 	query := "INSERT INTO users (id, email, points) VALUES ($1, $2, $3)"
-	_, err := r.db.ExecContext(ctx, query, data.ID, data.Email, data.Points)
+	_, err := r.db.ExecContext(ctx, query, data.id, data.email, data.point.points)
 	if err != nil {
 		return nil, err
 	}
@@ -77,12 +70,36 @@ func (r *userRepository) Create(ctx context.Context, data UserModel) (*UserModel
 
 func (r *userRepository) Update(ctx context.Context, data UserModel) (*UserModel, error) {
 	query := "UPDATE users SET email = $1, points = $2 WHERE id = $3"
-	_, err := r.db.ExecContext(ctx, query, data.Email, data.Points, data.ID)
+	_, err := r.db.ExecContext(ctx, query, data.email, data.point.points, data.id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &data, nil
+}
+
+func (r *userRepository) UpdateByID(ctx context.Context, userID string, updateFn func(user *UserModel) (bool, error)) error {
+	// DO: 1
+	user, err := r.GetById(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	// Update user field.
+
+	ok, err := updateFn(user)
+	if !ok && err != nil {
+		return err
+	}
+
+	_, err = r.Update(ctx, *user)
+	if err != nil {
+		return err
+	}
+
+	// DO: 3
+
+	return nil
 }
 
 // Point repository
@@ -106,11 +123,11 @@ func (r *pointRepository) GetByUserId(ctx context.Context, id string) (*PointMod
 	row := r.db.QueryRowContext(ctx, query, id)
 
 	var point PointModel
-	err := row.Scan(&point.ID, &point.Points, &point.UserID)
+	err := row.Scan(&point.id, &point.points, &point.userID)
 	if err != nil {
-		// if err == sql.ErrNoRows {
-		// 	return nil, nil
-		// }
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -119,7 +136,7 @@ func (r *pointRepository) GetByUserId(ctx context.Context, id string) (*PointMod
 
 func (r *pointRepository) Create(ctx context.Context, data PointModel) (*PointModel, error) {
 	query := "INSERT INTO points (id, points, user_id) VALUES ($1, $2, $3)"
-	_, err := r.db.ExecContext(ctx, query, data.ID, data.Points, data.UserID)
+	_, err := r.db.ExecContext(ctx, query, data.id, data.points, data.userID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +146,7 @@ func (r *pointRepository) Create(ctx context.Context, data PointModel) (*PointMo
 
 func (r *pointRepository) Update(ctx context.Context, data PointModel) (*PointModel, error) {
 	query := "UPDATE points SET points = $1 WHERE id = $2"
-	_, err := r.db.ExecContext(ctx, query, data.Points, data.ID)
+	_, err := r.db.ExecContext(ctx, query, data.points, data.id)
 	if err != nil {
 		return nil, err
 	}
@@ -144,14 +161,14 @@ func (r *pointRepository) AddPoint(ctx context.Context, userId string, points in
 	}
 
 	if existingPoint != nil {
-		existingPoint.Points += points
+		existingPoint.points += points
 		return r.Update(ctx, *existingPoint)
 	}
 
 	newPoint := PointModel{
-		ID:     userId + "-points",
-		Points: points,
-		UserID: userId,
+		id:     userId + "-points",
+		points: points,
+		userID: userId,
 	}
 	return r.Create(ctx, newPoint)
 }

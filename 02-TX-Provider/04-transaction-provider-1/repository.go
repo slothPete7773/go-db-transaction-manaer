@@ -1,9 +1,14 @@
-package unitofwork
+package tx_providerr
 
 import (
 	"context"
 	"database/sql"
 )
+
+type db interface {
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
 
 // Model
 
@@ -26,7 +31,7 @@ type Repository struct {
 	PointRepository PointRepository
 }
 
-func NewRepository(db *sql.DB) Repository {
+func NewRepository(db db) Repository {
 	return Repository{
 		UserRepository:  NewUserRepository(db),
 		PointRepository: NewPointRepository(db),
@@ -42,10 +47,10 @@ type UserRepository interface {
 }
 
 type userRepository struct {
-	db *sql.DB
+	db db
 }
 
-func NewUserRepository(db *sql.DB) UserRepository {
+func NewUserRepository(db db) UserRepository {
 	return &userRepository{db: db}
 }
 
@@ -94,10 +99,10 @@ type PointRepository interface {
 }
 
 type pointRepository struct {
-	db *sql.DB
+	db db
 }
 
-func NewPointRepository(db *sql.DB) PointRepository {
+func NewPointRepository(db db) PointRepository {
 	return &pointRepository{db: db}
 }
 
@@ -108,9 +113,9 @@ func (r *pointRepository) GetByUserId(ctx context.Context, id string) (*PointMod
 	var point PointModel
 	err := row.Scan(&point.ID, &point.Points, &point.UserID)
 	if err != nil {
-		// if err == sql.ErrNoRows {
-		// 	return nil, nil
-		// }
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 

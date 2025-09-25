@@ -1,4 +1,4 @@
-package unitofwork
+package tx_injection
 
 import (
 	"context"
@@ -7,35 +7,38 @@ import (
 )
 
 type UserService struct {
+	dbTransactor    DBTransactor
 	userRepository  UserRepository
 	pointRepository PointRepository
 }
 
 func NewUserService(db *sql.DB) UserService {
 	return UserService{
+		dbTransactor:    NewTransactor(db),
 		userRepository:  NewUserRepository(db),
 		pointRepository: NewPointRepository(db),
 	}
 }
 
 func (u *UserService) AddPoint(ctx context.Context, userId string, points int) error {
-	user, err := u.userRepository.GetById(ctx, userId)
-	log.Println("err:", err)
+
+	tx := u.dbTransactor.Begin()
+	defer tx.SafeRollback(recover())
+
+	user, err := u.userRepository.GetById(tx, ctx, userId)
 	if err != nil {
 		return err
 	}
 
-	_, err = u.pointRepository.AddPoint(ctx, userId, points)
-	// err = errors.New("Hee")
+	point, err := u.pointRepository.AddPoint(tx, ctx, userId, points)
 	if err != nil {
 		return err
 	}
 
-	log.Println("4")
-	_, err = u.userRepository.Update(ctx, *user)
-	if err != nil {
-		return err
-	}
+	u.userRepository.Update(tx, ctx, *user)
+	log.Println("Point: ", point)
+
+	tx.Commit()
 
 	return nil
 }
